@@ -8,21 +8,19 @@ const ui = {
   previousBtn: document.getElementById("previousBtn"),
   nextBtn: document.getElementById("nextBtn"),
   refreshBtn: document.getElementById("refreshBtn"),
+  favoriteBtn: document.getElementById("favoriteBtn"),
   openStations: document.getElementById("openStations"),
-  listBtn: document.getElementById("listBtn"),
   closeStations: document.getElementById("closeStations"),
   drawer: document.getElementById("stationDrawer"),
   backdrop: document.getElementById("drawerBackdrop"),
   search: document.getElementById("searchInput"),
   stationList: document.getElementById("stationList"),
-  stationPreview: document.getElementById("stationPreview"),
   stationCount: document.getElementById("stationCount"),
-  countryFilters: document.getElementById("countryFilters"),
   drawerCountryFilters: document.getElementById("drawerCountryFilters"),
-  viewAllBtn: document.getElementById("viewAllBtn"),
   status: document.getElementById("statusText"),
   feedback: document.getElementById("feedback"),
-  liveDot: document.querySelector(".live-dot")
+  liveDot: document.querySelector(".live-dot"),
+  liveLabel: document.getElementById("liveLabel")
 };
 
 const countries = {
@@ -33,14 +31,27 @@ const countries = {
 
 let stations = [];
 let currentIndex = 0;
+let activeFilter = "all";
 let activeCountry = "all";
 let isLoading = false;
 let requestId = 0;
 let hls = null;
 let currentSrcUrl = "";
+let favorites = [];
+
+const STORAGE_KEYS = {
+  LAST_STATION: "islandRadio_lastStation",
+  FAVORITES: "islandRadio_favorites",
+  ACTIVE_FILTER: "islandRadio_activeFilter",
+  ACTIVE_COUNTRY: "islandRadio_activeCountry"
+};
 
 function isHlsStream(url) {
-  return url.includes(".m3u8");
+  try {
+    return /\.m3u8(?:$|[?#])/i.test(new URL(url, window.location.href).pathname + new URL(url, window.location.href).search);
+  } catch {
+    return /\.m3u8(?:$|[?#])/i.test(String(url));
+  }
 }
 
 function cleanupAudio() {
@@ -60,22 +71,31 @@ function setAudioSource(url) {
     hls = null;
   }
 
-  currentSrcUrl = url;
+  const resolvedUrl = new URL(url, window.location.href).href;
+  currentSrcUrl = resolvedUrl;
   const nativeHls = audio.canPlayType("application/vnd.apple.mpegurl");
 
-  if (isHlsStream(url) && !nativeHls && window.Hls?.isSupported()) {
+  if (isHlsStream(resolvedUrl) && !nativeHls && window.Hls?.isSupported()) {
     return new Promise((resolve, reject) => {
-      hls = new Hls();
-      hls.loadSource(url);
-      hls.attachMedia(audio);
-      hls.once(Hls.Events.MANIFEST_PARSED, resolve);
-      hls.once(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) reject(new Error("HLS stream error"));
+      const instance = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls = instance;
+      let settled = false;
+      instance.attachMedia(audio);
+      instance.loadSource(resolvedUrl);
+      instance.once(Hls.Events.MANIFEST_PARSED, () => {
+        settled = true;
+        resolve();
+      });
+      instance.on(Hls.Events.ERROR, (_event, data) => {
+        if (data.fatal && !settled) {
+          settled = true;
+          reject(new Error("HLS stream error"));
+        }
       });
     });
   }
 
-  audio.src = url;
+  audio.src = resolvedUrl;
   return Promise.resolve();
 }
 
@@ -105,51 +125,155 @@ function updatePlayButton() {
   ui.liveDot.classList.toggle("playing", playing);
 }
 
-function renderCurrentStation() {
+function saveLastStation() {
   const station = currentStation();
+  if (station) {
+    try {
+      localStorage.setItem(STORAGE_KEYS.LAST_STATION, JSON.stringify({
+        id: station.id,
+        index: currentIndex
+      }));
+    } catch (error) {
+      console.warn("Failed to save last station:", error);
+    }
+  }
+}
 
-  if (!station) return;
+function loadLastStation() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.LAST_STATION);
+    if (saved) {
+      const data = JSON.parse(saved);
+      const stationIndex = stations.findIndex(s => s.id === data.id);
+      if (stationIndex !== -1) {
+        currentIndex = stationIndex;
+        return true;
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to load last station:", e);
+  }
+  return false;
+}
 
-  ui.stationName.textContent = station.name;
-  ui.stationMeta.textContent =
-    `${countryFlag(station)} ${station.country} · ${station.frequency}`;
+function loadFavorites() {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEYS.FAVORITES);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      favorites = Array.isArray(parsed) ? parsed.filter(id => typeof id === "string") : [];
+    }
+  } catch (e) {
+    console.warn("Failed to load favorites:", e);
+    favorites = [];
+  }
+}
 
-  renderStationPreview();
+function saveFavorites() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+  } catch (e) {
+    console.warn("Failed to save favorites:", e);
+  }
+}
+
+function saveFilterSelection() {
+  try {
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_FILTER, JSON.stringify(activeFilter));
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_COUNTRY, JSON.stringify(activeCountry));
+  } catch (e) {
+    console.warn("Failed to save filter selection:", e);
+  }
+}
+
+function loadFilterSelection() {
+  try {
+    const savedFilter = localStorage.getItem(STORAGE_KEYS.ACTIVE_FILTER);
+    const savedCountry = localStorage.getItem(STORAGE_KEYS.ACTIVE_COUNTRY);
+    if (savedFilter) activeFilter = JSON.parse(savedFilter);
+    if (savedCountry) activeCountry = JSON.parse(savedCountry);
+  } catch (e) {
+    console.warn("Failed to load filter selection:", e);
+  }
+}
+
+function isFavorite(stationId) {
+  return favorites.includes(stationId);
+}
+
+function toggleFavorite(stationId) {
+  const index = favorites.indexOf(stationId);
+  if (index === -1) {
+    favorites.push(stationId);
+  } else {
+    favorites.splice(index, 1);
+  }
+  saveFavorites();
   renderStationList();
-  updatePlayButton();
+  renderCurrentStation();
+}
+
+function toggleCurrentFavorite() {
+  const station = currentStation();
+  if (!station) return;
+  toggleFavorite(station.id);
+  updateCoverFavoriteButton();
+}
+
+function updateCoverFavoriteButton() {
+  const station = currentStation();
+  if (!station || !ui.favoriteBtn) return;
+
+  const isFav = isFavorite(station.id);
+  ui.favoriteBtn.classList.toggle("favorited", isFav);
+  ui.favoriteBtn.setAttribute("aria-label", isFav ? "Remove from favorites" : "Add to favorites");
+  ui.favoriteBtn.title = isFav ? "Remove from favorites" : "Add to favorites";
 }
 
 function getFilteredStations() {
   const query = ui.search.value.trim().toLowerCase();
 
-  return stations.filter((station) => {
-    const matchesCountry =
-      activeCountry === "all" || station.country === activeCountry;
+  let filtered = stations;
 
-    const searchableText = [
-      station.name,
-      station.country,
-      station.frequency,
-      station.countryCode
-    ].join(" ").toLowerCase();
+  if (activeFilter === "favorites") {
+    filtered = stations.filter(s => favorites.includes(s.id));
+  } else if (activeCountry !== "all") {
+    filtered = stations.filter(s => s.country === activeCountry);
+  }
 
-    return matchesCountry && searchableText.includes(query);
-  });
+  if (query) {
+    filtered = filtered.filter((station) => {
+      const searchableText = [
+        station.name,
+        station.country,
+        station.frequency,
+        station.countryCode
+      ].join(" ").toLowerCase();
+
+      return searchableText.includes(query);
+    });
+  }
+
+  return filtered;
 }
 
 function createStationButton(station, index) {
-  const button = document.createElement("button");
-  button.className = "station-row";
-  button.type = "button";
-
+  const row = document.createElement("div");
+  row.className = "station-row";
   if (index === currentIndex) {
-    button.classList.add("selected");
-    button.setAttribute("aria-current", "true");
+    row.classList.add("selected");
   }
+
+  const selectButton = document.createElement("button");
+  selectButton.className = "station-select";
+  selectButton.type = "button";
+  selectButton.setAttribute("aria-label", `Play ${station.name}`);
+  if (index === currentIndex) selectButton.setAttribute("aria-current", "true");
 
   const flag = document.createElement("span");
   flag.className = "station-flag";
   flag.textContent = countryFlag(station);
+  flag.setAttribute("aria-hidden", "true");
 
   const info = document.createElement("span");
   info.className = "station-info";
@@ -164,37 +288,42 @@ function createStationButton(station, index) {
 
   const action = document.createElement("span");
   action.className = "station-action";
-  action.textContent =
-    index === currentIndex && !audio.paused ? "Ⅱ" : "▶";
+  action.textContent = index === currentIndex && !audio.paused ? "Ⅱ" : "▶";
   action.setAttribute("aria-hidden", "true");
-
   info.append(name, frequency);
-  button.append(flag, info, action);
+  selectButton.append(flag, info, action);
 
-  button.addEventListener("click", () => {
+  const favoriteBtn = document.createElement("button");
+  favoriteBtn.type = "button";
+  favoriteBtn.className = "favorite-btn";
+  const favorite = isFavorite(station.id);
+  favoriteBtn.setAttribute("aria-label", favorite ? `Remove ${station.name} from favorites` : `Add ${station.name} to favorites`);
+  favoriteBtn.setAttribute("aria-pressed", String(favorite));
+  favoriteBtn.textContent = favorite ? "♥" : "♡";
+  if (favorite) favoriteBtn.classList.add("favorited");
+  favoriteBtn.addEventListener("click", () => toggleFavorite(station.id));
+
+  selectButton.addEventListener("click", () => {
     selectStation(index, true);
     closeDrawer();
   });
 
-  return button;
+  row.append(selectButton, favoriteBtn);
+  return row;
 }
 
-function renderStationPreview() {
-  const filtered = getFilteredStations().slice(0, 4);
-  ui.stationPreview.replaceChildren();
+function renderCurrentStation() {
+  const station = currentStation();
 
-  if (!filtered.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty-state";
-    empty.textContent = "No stations found.";
-    ui.stationPreview.append(empty);
-    return;
-  }
+  if (!station) return;
 
-  filtered.forEach((station) => {
-    const index = stations.findIndex((item) => item.id === station.id);
-    ui.stationPreview.append(createStationButton(station, index));
-  });
+  ui.stationName.textContent = station.name;
+  ui.stationMeta.textContent =
+    `${countryFlag(station)} ${station.country} · ${station.frequency}`;
+
+  renderStationList();
+  updatePlayButton();
+  updateCoverFavoriteButton();
 }
 
 function renderStationList() {
@@ -206,44 +335,72 @@ function renderStationList() {
   if (!filtered.length) {
     const empty = document.createElement("p");
     empty.className = "empty-state";
-    empty.textContent = "No stations match your search.";
+    if (activeFilter === "favorites") {
+      empty.textContent = "No favorites yet. Tap the heart on a station to add it.";
+    } else {
+      empty.textContent = "No stations match your search.";
+    }
     ui.stationList.append(empty);
     return;
   }
 
-  const groups = new Map();
-
-  filtered.forEach((station) => {
-    if (!groups.has(station.country)) {
-      groups.set(station.country, []);
-    }
-    groups.get(station.country).push(station);
-  });
-
-  for (const [country, group] of groups) {
-    const heading = document.createElement("div");
-    heading.className = "country-heading";
-    heading.textContent = `${countries[country]?.flag || "📻"} ${country}`;
-    ui.stationList.append(heading);
-
-    group.forEach((station) => {
+  if (activeFilter === "favorites") {
+    filtered.forEach((station) => {
       const index = stations.findIndex((item) => item.id === station.id);
       ui.stationList.append(createStationButton(station, index));
     });
+  } else {
+    const groups = new Map();
+
+    filtered.forEach((station) => {
+      if (!groups.has(station.country)) {
+        groups.set(station.country, []);
+      }
+      groups.get(station.country).push(station);
+    });
+
+    for (const [country, group] of groups) {
+      const heading = document.createElement("div");
+      heading.className = "country-heading";
+      heading.textContent = `${countries[country]?.flag || "📻"} ${country}`;
+      ui.stationList.append(heading);
+
+      group.forEach((station) => {
+        const index = stations.findIndex((item) => item.id === station.id);
+        ui.stationList.append(createStationButton(station, index));
+      });
+    }
   }
+}
+
+function updateFilterButtons() {
+  document.querySelectorAll("#drawerCountryFilters [data-filter], #drawerCountryFilters [data-country]").forEach((button) => {
+    const isFilterBtn = button.hasAttribute("data-filter");
+    const isCountryBtn = button.hasAttribute("data-country");
+    let isActive = false;
+    if (isFilterBtn && button.dataset.filter === activeFilter && activeCountry === "all") isActive = true;
+    if (isCountryBtn && activeFilter === "all" && button.dataset.country === activeCountry) isActive = true;
+    button.classList.toggle("active", isActive);
+  });
+}
+
+function setFilter(filter) {
+  activeFilter = filter;
+  activeCountry = "all";
+  saveFilterSelection();
+
+  updateFilterButtons();
+
+  renderStationList();
 }
 
 function setCountry(country) {
   activeCountry = country;
+  activeFilter = "all";
+  saveFilterSelection();
 
-  document.querySelectorAll("[data-country]").forEach((button) => {
-    button.classList.toggle(
-      "active",
-      button.dataset.country === activeCountry
-    );
-  });
+  updateFilterButtons();
 
-  renderStationPreview();
   renderStationList();
 }
 
@@ -251,51 +408,45 @@ function openDrawer() {
   ui.drawer.classList.add("open");
   ui.backdrop.classList.add("open");
   ui.drawer.setAttribute("aria-hidden", "false");
+  ui.openStations.setAttribute("aria-expanded", "true");
   document.body.style.overflow = "hidden";
-  ui.search.focus();
+  window.setTimeout(() => ui.search.focus(), 30);
 }
 
 function closeDrawer() {
   ui.drawer.classList.remove("open");
   ui.backdrop.classList.remove("open");
   ui.drawer.setAttribute("aria-hidden", "true");
+  ui.openStations.setAttribute("aria-expanded", "false");
   document.body.style.overflow = "";
 }
 
 async function playCurrent() {
   const station = currentStation();
-  if (!station) return;
+  if (!station || isLoading) return;
 
-  if (isLoading) return;
-
+  const playRequest = requestId;
   isLoading = true;
   setStatus("Connecting…", `Connecting to ${station.name}…`);
 
   try {
     const resolvedUrl = new URL(station.streamUrl, window.location.href).href;
-
-    if (currentSrcUrl !== resolvedUrl) {
-      await setAudioSource(station.streamUrl);
-    }
-
+    if (currentSrcUrl !== resolvedUrl) await setAudioSource(resolvedUrl);
+    if (playRequest !== requestId || station !== currentStation()) return;
     await audio.play();
+    saveLastStation();
   } catch (error) {
+    if (playRequest !== requestId) return;
     if (error.name === "NotAllowedError") {
-      setStatus(
-        "Tap to play",
-        "Your browser blocked playback. Tap Play to try again.",
-        true
-      );
+      setStatus("Tap to play", "Your browser blocked playback. Tap Play to try again.", true);
     } else {
-      setStatus(
-        "Unable to play",
-        "This stream could not start. Try Refresh Live or another station.",
-        true
-      );
+      setStatus("Unable to play", "This stream could not start. Try Refresh Live or another station.", true);
     }
   } finally {
-    isLoading = false;
-    updatePlayButton();
+    if (playRequest === requestId) {
+      isLoading = false;
+      updatePlayButton();
+    }
   }
 }
 
@@ -304,6 +455,7 @@ async function selectStation(index, autoplay = true) {
 
   currentIndex = (index + stations.length) % stations.length;
   requestId++;
+  isLoading = false;
 
   cleanupAudio();
 
@@ -335,35 +487,57 @@ async function refreshLive() {
   requestId++;
   const refreshRequest = requestId;
 
-  isLoading = false;
+  isLoading = true;
   cleanupAudio();
   setStatus("Refreshing…", `Reconnecting to ${station.name} live…`);
 
   try {
     await setAudioSource(station.streamUrl);
+    if (refreshRequest !== requestId || station !== currentStation()) return;
     await audio.play();
-
     if (refreshRequest !== requestId) return;
-    setStatus("Connecting…", `Reconnecting to ${station.name}…`);
   } catch (error) {
     if (refreshRequest !== requestId) return;
-
-    setStatus(
-      "Refresh failed",
-      "Could not reconnect. Check the connection or try another station.",
-      true
-    );
+    setStatus("Refresh failed", "Could not reconnect. Check the connection or try another station.", true);
+  } finally {
+    if (refreshRequest === requestId) {
+      isLoading = false;
+      updatePlayButton();
+    }
   }
+}
 
-  updatePlayButton();
+function getCurrentFilteredIndex() {
+  const filtered = getFilteredStations();
+  const station = currentStation();
+  if (!station) return 0;
+  return filtered.findIndex(s => s.id === station.id);
+}
+
+function getStationOriginalIndex(stationId) {
+  return stations.findIndex(s => s.id === stationId);
 }
 
 function nextStation() {
-  selectStation(currentIndex + 1, true);
+  const filtered = getFilteredStations();
+  if (!filtered.length) return;
+  
+  const currentFilteredIndex = getCurrentFilteredIndex();
+  const nextFilteredIndex = (currentFilteredIndex + 1) % filtered.length;
+  const nextStation = filtered[nextFilteredIndex];
+  const originalIndex = getStationOriginalIndex(nextStation.id);
+  selectStation(originalIndex, true);
 }
 
 function previousStation() {
-  selectStation(currentIndex - 1, true);
+  const filtered = getFilteredStations();
+  if (!filtered.length) return;
+  
+  const currentFilteredIndex = getCurrentFilteredIndex();
+  const prevFilteredIndex = (currentFilteredIndex - 1 + filtered.length) % filtered.length;
+  const prevStation = filtered[prevFilteredIndex];
+  const originalIndex = getStationOriginalIndex(prevStation.id);
+  selectStation(originalIndex, true);
 }
 
 async function loadStations() {
@@ -381,7 +555,15 @@ async function loadStations() {
     }
 
     stations = data.stations;
-    currentIndex = 0;
+    loadFavorites();
+    loadFilterSelection();
+
+    updateFilterButtons();
+
+    const hasLastStation = loadLastStation();
+    if (!hasLastStation) {
+      currentIndex = 0;
+    }
 
     renderCurrentStation();
     setStatus("Ready", `${stations.length} stations loaded. Press Play.`);
@@ -396,11 +578,9 @@ async function loadStations() {
   }
 }
 
-// Playback events keep the interface synchronized with the audio element.
 audio.addEventListener("playing", () => {
   setStatus("On air", `Now playing ${currentStation()?.name || "radio"}.`);
   updatePlayButton();
-  renderStationPreview();
   renderStationList();
 });
 
@@ -409,7 +589,10 @@ audio.addEventListener("waiting", () => {
   updatePlayButton();
 });
 
-audio.addEventListener("pause", updatePlayButton);
+audio.addEventListener("pause", () => {
+  updatePlayButton();
+  renderStationList();
+});
 
 audio.addEventListener("error", () => {
   isLoading = false;
@@ -430,27 +613,32 @@ ui.playBtn.addEventListener("click", togglePlayback);
 ui.previousBtn.addEventListener("click", previousStation);
 ui.nextBtn.addEventListener("click", nextStation);
 ui.refreshBtn.addEventListener("click", refreshLive);
+ui.favoriteBtn.addEventListener("click", toggleCurrentFavorite);
 
 ui.openStations.addEventListener("click", openDrawer);
-ui.listBtn.addEventListener("click", openDrawer);
 ui.closeStations.addEventListener("click", closeDrawer);
 ui.backdrop.addEventListener("click", closeDrawer);
-ui.viewAllBtn.addEventListener("click", openDrawer);
 
 ui.search.addEventListener("input", () => {
-  renderStationPreview();
   renderStationList();
 });
 
-[ui.countryFilters, ui.drawerCountryFilters].forEach((container) => {
-  container.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-country]");
-    if (button) setCountry(button.dataset.country);
-  });
+ui.drawerCountryFilters.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-filter], [data-country]");
+  if (!button) return;
+
+  if (button.hasAttribute("data-filter")) {
+    setFilter(button.dataset.filter);
+  } else if (button.hasAttribute("data-country")) {
+    setCountry(button.dataset.country);
+  }
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") closeDrawer();
+  if (event.key === "Escape" && ui.drawer.classList.contains("open")) {
+    closeDrawer();
+    ui.openStations.focus();
+  }
 });
 
 loadStations();

@@ -2,9 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#10131c" />
   <meta name="description" content="Listen to live Caribbean radio stations." />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Island Radio" />
   <title>Island Radio — Live Caribbean Radio</title>
   <link rel="stylesheet" href="styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
@@ -12,101 +15,85 @@
 </head>
 <body>
   <main class="app">
-    <header class="topbar">
-      <a class="brand" href="#" aria-label="Island Radio home">
-        <span class="brand-icon">♫</span>
-        <span>island<span class="brand-light">radio</span></span>
-      </a>
-      <button id="openStations" class="icon-button" aria-label="Open stations">
-        ☰
-      </button>
-    </header>
+    <div class="app-container">
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Island Radio home">
+          <span class="brand-icon">♫</span>
+          <span>island<span class="brand-light">radio</span></span>
+        </a>
+        <button id="openStations" class="icon-button" aria-label="Open stations" aria-controls="stationDrawer" aria-expanded="false">
+          ☰
+        </button>
+      </header>
 
-    <section class="player-card" aria-label="Radio player">
-      <div class="cover-art">
-        <div class="sun"></div>
-        <div class="palm">🌴</div>
-        <div class="ocean">CARIBBEAN</div>
-        <div class="cover-brand">ISLAND RADIO</div>
-      </div>
-
-      <div class="station-details">
-        <div class="live-row">
-          <span class="live-dot"></span>
-          <span id="liveLabel">LIVE RADIO</span>
-          <span id="statusText" class="status">Ready to play</span>
+      <section class="player-card" aria-label="Radio player">
+        <div class="cover-art">
+          <div class="cover-overlay">
+            <div class="live-row">
+              <span class="live-dot"></span>
+              <span id="liveLabel">LIVE RADIO</span>
+              <span id="statusText" class="status">Ready</span>
+            </div>
+            <div class="cover-actions">
+              <button id="refreshBtn" class="icon-button cover-refresh" aria-label="Refresh live stream" title="Refresh">
+                <span aria-hidden="true">↻</span>
+              </button>
+              <button id="favoriteBtn" class="icon-button cover-favorite" aria-label="Add to favorites" title="Favorite">
+                <span class="heart-icon" aria-hidden="true"></span>
+              </button>
+            </div>
+          </div>
+          <div class="cover-bg">
+            <div class="sun"></div>
+            <div class="palm">🌴</div>
+            <div class="ocean">CARIBBEAN</div>
+            <div class="cover-brand">ISLAND RADIO</div>
+          </div>
+          <div class="cover-info">
+            <h1 id="stationName">Choose a station</h1>
+            <p id="stationMeta" class="station-meta">Caribbean radio, all in one place</p>
+          </div>
         </div>
 
-        <h1 id="stationName">Choose a station</h1>
-        <p id="stationMeta" class="station-meta">
-          Caribbean radio, all in one place
-        </p>
-      </div>
+        <div class="station-details">
+          <div class="player-controls">
+            <button id="previousBtn" class="control-button secondary"
+                    aria-label="Previous station" title="Previous station">
+              ⏮
+            </button>
 
-      <div class="player-controls">
-        <button id="previousBtn" class="control-button secondary"
-                aria-label="Previous station" title="Previous station">
-          ⏮
-        </button>
+            <button id="playBtn" class="play-button"
+                    aria-label="Play radio" title="Play">
+              <span id="playIcon">▶</span>
+            </button>
 
-        <button id="playBtn" class="play-button"
-                aria-label="Play radio" title="Play">
-          <span id="playIcon">▶</span>
-        </button>
+            <button id="nextBtn" class="control-button secondary"
+                    aria-label="Next station" title="Next station">
+              ⏭
+            </button>
+          </div>
 
-        <button id="nextBtn" class="control-button secondary"
-                aria-label="Next station" title="Next station">
-          ⏭
-        </button>
-      </div>
-
-      <div class="utility-controls">
-        <button id="refreshBtn" class="utility-button">
-          <span aria-hidden="true">↻</span> Refresh Live
-        </button>
-        <button id="listBtn" class="utility-button">
-          <span aria-hidden="true">☷</span> Stations
-        </button>
-      </div>
-
-      <p id="feedback" class="feedback" role="status" aria-live="polite">
-        Select Play to start listening.
-      </p>
-    </section>
-
-    <section class="quick-section">
-      <div class="section-heading">
-        <div>
-          <p class="eyebrow">EXPLORE THE ISLANDS</p>
-          <h2>Browse by country</h2>
+          <p id="feedback" class="feedback" role="status" aria-live="polite">
+            Select Play to start listening.
+          </p>
         </div>
-      </div>
+      </section>
 
-      <div class="country-filters" id="countryFilters">
-        <button class="country-chip active" data-country="all">All stations</button>
-        <button class="country-chip" data-country="Martinique">🇲🇶 Martinique</button>
-        <button class="country-chip" data-country="Saint Lucia">🇱🇨 Saint Lucia</button>
-        <button class="country-chip" data-country="Trinidad & Tobago">🇹🇹 Trinidad & Tobago</button>
-      </div>
-
-      <div class="station-preview" id="stationPreview"></div>
-      <button id="viewAllBtn" class="view-all">View all stations →</button>
-    </section>
-
-    <footer>
-      <p>Made for Caribbean radio lovers ♥</p>
-      <p class="footer-small">Station streams are provided by their respective broadcasters.</p>
-    </footer>
+      <footer>
+        <p>Made for Caribbean radio lovers ♥</p>
+        <p class="footer-small">Station streams are provided by their respective broadcasters.</p>
+      </footer>
+    </div>
   </main>
 
   <div id="drawerBackdrop" class="drawer-backdrop"></div>
 
   <aside id="stationDrawer" class="station-drawer"
-         aria-label="Station list" aria-hidden="true">
+         aria-label="Station list" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
     <div class="drawer-header">
       <div>
         <p class="eyebrow">YOUR RADIO GUIDE</p>
-        <h2>Stations</h2>
+        <h2 id="drawerTitle">Stations</h2>
         <p id="stationCount" class="drawer-subtitle">Loading stations…</p>
       </div>
       <button id="closeStations" class="icon-button" aria-label="Close stations">
@@ -122,13 +109,14 @@
     </label>
 
     <div id="drawerCountryFilters" class="country-filters drawer-filters">
-      <button class="country-chip active" data-country="all">All</button>
+      <button class="country-chip active" data-filter="all">All</button>
+      <button class="country-chip" data-filter="favorites">❤️</button>
       <button class="country-chip" data-country="Martinique">🇲🇶 MQ</button>
       <button class="country-chip" data-country="Saint Lucia">🇱🇨 LC</button>
       <button class="country-chip" data-country="Trinidad & Tobago">🇹🇹 TT</button>
     </div>
 
-    <div id="stationList" class="station-list"></div>
+    <div id="stationList" class="station-list" aria-label="Available radio stations"></div>
   </aside>
 
   <audio id="audioPlayer" preload="none" playsinline></audio>

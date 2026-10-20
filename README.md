@@ -1,39 +1,43 @@
 # Island Radio
 
-A minimal web app for streaming live Caribbean radio stations from Martinique, Saint Lucia, and Trinidad & Tobago.
+A responsive static web app for streaming Caribbean radio stations from Martinique, Saint Lucia, and Trinidad & Tobago.
 
 ## Features
 
-- 60+ live radio stations across three Caribbean nations
-- Filter and search stations by name, frequency, or country
-- Play, pause, skip, and refresh live streams
-- HLS stream support via [hls.js](https://github.com/video-dev/hls.js)
-- Responsive dark UI with slide-out station drawer
-- Keyboard accessible (Escape closes the drawer)
+- 60 live radio stations across three Caribbean countries
+- Search by station name, country, frequency, or country code
+- Country filters and a favorites-only filter
+- Play/pause, next/previous station, and stream refresh
+- HLS playback through hls.js where native HLS is unavailable
+- Persistent favorites and last-selected station (local browser storage)
+- Responsive player layout, accessible station drawer, keyboard Escape support, and reduced-motion support
 
-## Running locally
+## Run locally
 
-A web server is required because the app fetches `stations.json` via `fetch()`.
+A web server is required because the app fetches `stations.json`.
 
 ```bash
 python3 -m http.server 8000
 ```
 
-Then open http://localhost:8000 in your browser.
+Open <http://localhost:8000>.
 
 ## Deployment
 
-The app is static and can be hosted on GitHub Pages, Netlify, or any static hosting provider.
+This is a static site and can be hosted on GitHub Pages, Netlify, or another static hosting provider. Streams are hosted by third parties; a station may be offline, geo-restricted, or blocked by a browser due to mixed-content/CORS/provider policies.
 
-## Project structure
+## Project files
 
-| File | Description |
+| File | Purpose |
 |---|---|
-| `index.html` | Markup and layout |
-| `styles.css` | Styling |
-| `app.js` | Player logic, station rendering, HLS playback |
-| `stations.json` | Station data (name, country, frequency, stream URL) |
+| `index.html` | Accessible page structure |
+| `styles.css` | Responsive design and components |
+| `app.js` | Station rendering, audio playback, HLS handling, favorites, and filters |
+| `stations.json` | Station names, countries, frequencies, and stream URLs |
 
-## License
+## Notes
 
-Station streams are provided by their respective broadcasters. This project is for educational purposes.
+- The app does not autoplay audio on page load; users must press Play.
+- Favorites and the last selected station are saved in the current browser using `localStorage`.
+- HLS.js is loaded from jsDelivr. Native HLS playback is used when the browser supports it.
+- Stream URLs are supplied by their broadcasters and can change without notice.
