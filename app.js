@@ -421,27 +421,94 @@ function closeDrawer() {
   document.body.style.overflow = "";
 }
 
-async function playCurrent() {
+function watchPlaybackStart(playRequest, timeoutMs) {
+  return new Promise((resolve) => {
+    if (playRequest !== requestId) {
+      resolve("cancelled");
+      return;
+    }
+
+    if (!audio.paused && !audio.ended && audio.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      resolve("playing");
+      return;
+    }
+
+    let done = false;
+    const finish = (value) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      audio.removeEventListener("playing", onPlaying);
+      audio.removeEventListener("error", onError);
+      resolve(value);
+    };
+
+    const onPlaying = () => finish("playing");
+    const onError = () => finish("error");
+    const timer = window.setTimeout(() => {
+      finish(audio.paused ? "timeout" : "playing");
+    }, timeoutMs);
+
+    audio.addEventListener("playing", onPlaying);
+    audio.addEventListener("error", onError);
+  });
+}
+
+async function playCurrent({ waitForStart = false, timeoutMs = 10000 } = {}) {
   const station = currentStation();
-  if (!station || isLoading) return;
+  if (!station || isLoading) return false;
 
   const playRequest = requestId;
   isLoading = true;
   setStatus("Connecting…", `Connecting to ${station.name}…`);
 
+  const markUnavailable = () => {
+    setStatus(
+      "Stream unavailable",
+      "The stream may be offline, expired, or unsupported by this browser.",
+      true
+    );
+    return false;
+  };
+
   try {
     const resolvedUrl = new URL(station.streamUrl, window.location.href).href;
-    if (currentSrcUrl !== resolvedUrl) await setAudioSource(resolvedUrl);
-    if (playRequest !== requestId || station !== currentStation()) return;
-    await audio.play();
-    saveLastStation();
-  } catch (error) {
-    if (playRequest !== requestId) return;
-    if (error.name === "NotAllowedError") {
+    const connect = async () => {
+      try {
+        if (currentSrcUrl !== resolvedUrl) await setAudioSource(resolvedUrl);
+        if (playRequest !== requestId || station !== currentStation()) return "cancelled";
+        await audio.play();
+        if (playRequest !== requestId) return "cancelled";
+        if (!waitForStart) return "playing";
+        return watchPlaybackStart(playRequest, timeoutMs);
+      } catch (error) {
+        if (error.name === "NotAllowedError") return "blocked";
+        return "error";
+      }
+    };
+
+    const outcome = waitForStart
+      ? await Promise.race([
+          connect(),
+          new Promise((resolve) => {
+            window.setTimeout(() => resolve("timeout"), timeoutMs);
+          })
+        ])
+      : await connect();
+
+    if (playRequest !== requestId || outcome === "cancelled") return false;
+    if (outcome === "blocked") {
       setStatus("Tap to play", "Your browser blocked playback. Tap Play to try again.", true);
-    } else {
-      setStatus("Unable to play", "This stream could not start. Try Refresh Live or another station.", true);
+      return "blocked";
     }
+    if (outcome !== "playing") {
+      if (waitForStart) return markUnavailable();
+      setStatus("Unable to play", "This stream could not start. Try Refresh Live or another station.", true);
+      return false;
+    }
+
+    saveLastStation();
+    return true;
   } finally {
     if (playRequest === requestId) {
       isLoading = false;
@@ -450,8 +517,8 @@ async function playCurrent() {
   }
 }
 
-async function selectStation(index, autoplay = true) {
-  if (!stations.length) return;
+async function selectStation(index, autoplay = true, playOptions = {}) {
+  if (!stations.length) return false;
 
   currentIndex = (index + stations.length) % stations.length;
   requestId++;
@@ -463,8 +530,10 @@ async function selectStation(index, autoplay = true) {
   setStatus("Ready", `${currentStation().name} selected.`);
 
   if (autoplay) {
-    await playCurrent();
+    return playCurrent(playOptions);
   }
+
+  return true;
 }
 
 async function togglePlayback() {
@@ -518,26 +587,39 @@ function getStationOriginalIndex(stationId) {
   return stations.findIndex(s => s.id === stationId);
 }
 
-function nextStation() {
+async function stepStation(direction) {
   const filtered = getFilteredStations();
   if (!filtered.length) return;
-  
-  const currentFilteredIndex = getCurrentFilteredIndex();
-  const nextFilteredIndex = (currentFilteredIndex + 1) % filtered.length;
-  const nextStation = filtered[nextFilteredIndex];
-  const originalIndex = getStationOriginalIndex(nextStation.id);
-  selectStation(originalIndex, true);
+
+  const playOptions = { waitForStart: true, timeoutMs: 10000 };
+  const total = filtered.length;
+
+  for (let attempt = 0; attempt < total; attempt++) {
+    const currentFilteredIndex = getCurrentFilteredIndex();
+    const nextFilteredIndex =
+      direction === 1
+        ? (currentFilteredIndex + 1) % total
+        : (currentFilteredIndex - 1 + total) % total;
+    const candidate = filtered[nextFilteredIndex];
+    const originalIndex = getStationOriginalIndex(candidate.id);
+    const result = await selectStation(originalIndex, true, playOptions);
+
+    if (result === true || result === "blocked") return;
+  }
+
+  setStatus(
+    "Stream unavailable",
+    "No playable streams in this list right now. Try again later.",
+    true
+  );
+}
+
+function nextStation() {
+  return stepStation(1);
 }
 
 function previousStation() {
-  const filtered = getFilteredStations();
-  if (!filtered.length) return;
-  
-  const currentFilteredIndex = getCurrentFilteredIndex();
-  const prevFilteredIndex = (currentFilteredIndex - 1 + filtered.length) % filtered.length;
-  const prevStation = filtered[prevFilteredIndex];
-  const originalIndex = getStationOriginalIndex(prevStation.id);
-  selectStation(originalIndex, true);
+  return stepStation(-1);
 }
 
 async function loadStations() {
